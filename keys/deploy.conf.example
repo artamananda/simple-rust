@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# Salin menjadi keys/deploy.conf (untuk production) dan keys/deploy-dev.conf
+# (untuk home server), lalu isi kredensial SSH-nya. Folder keys/ tidak di-commit.
+
+VPS_HOST=
+VPS_USER=
+VPS_PORT=22
+SSH_KEY=~/.ssh/id_ed25519
+
+# Arsitektur mesin tujuan: amd64 (default deploy.sh) atau arm64 (default deploy-dev.sh)
+# DEPLOY_ARCH=amd64

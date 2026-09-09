@@ -1,0 +1,13 @@
+# Artefak build Rust
+/target
+
+# Konfigurasi & rahasia
+.env
+keys/*
+!keys/*.example
+
+# Binary hasil deploy yang sempat singgah di root
+/simple-rust
+/simple-rust-dev
+
+.DS_Store

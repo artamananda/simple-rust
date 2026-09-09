@@ -1,0 +1,17 @@
+[Unit]
+Description=Simple Rust Comment API (Dev)
+After=network.target
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/html/apps/simple-rust-dev
+EnvironmentFile=/var/www/html/apps/simple-rust-dev/.env
+ExecStart=/var/www/html/apps/simple-rust-dev/simple-rust-dev
+Restart=always
+RestartSec=5
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,52 @@
+[package]
+name = "simple-rust"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+description = "API komentar sederhana dengan clean architecture di atas Axum + Postgres"
+authors = ["artamananda"]
+license = "MIT"
+publish = false
+
+[lib]
+name = "simple_rust"
+path = "src/lib.rs"
+
+[[bin]]
+name = "simple-rust"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+async-trait = "0.1"
+axum = "0.8"
+chrono = { version = "0.4", features = ["serde"] }
+dotenvy = "0.15"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sqlx = { version = "0.8", default-features = false, features = [
+    "runtime-tokio",
+    "tls-rustls-ring",
+    "postgres",
+    "uuid",
+    "chrono",
+    "migrate",
+    "macros",
+] }
+thiserror = "2"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal"] }
+tower-http = { version = "0.6", features = ["cors", "trace", "timeout"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+
+[build-dependencies]
+chrono = "0.4"
+
+[profile.release]
+strip = true
+lto = "thin"
+codegen-units = 1
