@@ -48,7 +48,12 @@ cd $REMOTE_DIR
 echo "  -> stop service & tukar binary"
 sudo systemctl stop $APP_NAME.service || true
 mv -f $APP_NAME.new $APP_NAME
-chmod +x $APP_NAME
+# chmod 755, bukan "chmod +x" — lihat catatan di deploy.sh.
+chmod 755 $APP_NAME
+# .env berisi kredensial. Cukup 600 milik user deploy: systemd (PID 1, root)
+# yang membacanya lalu meneruskan isinya ke proses, jadi www-data tidak perlu
+# akses — dan file tetap bisa ditimpa scp pada deploy berikutnya.
+chmod 600 .env
 
 echo "  -> pasang & restart systemd service"
 sudo cp -f simple-rust-dev.service /etc/systemd/system/$APP_NAME.service

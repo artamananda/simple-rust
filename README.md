@@ -1,7 +1,7 @@
 # simple-rust
 
 API komentar (buku tamu) di atas **Rust + Axum + PostgreSQL**, disusun dengan
-*clean architecture*. Menggantikan endpoint Apps Script + Spreadsheet yang lambat:
+_clean architecture_. Menggantikan endpoint Apps Script + Spreadsheet yang lambat:
 respons `GET /api/comments` di mesin lokal ~**1 ms**, dibanding ratusan hingga
 ribuan milidetik lewat Apps Script.
 
@@ -15,12 +15,12 @@ presentation (HTTP/Axum) ─┐
 infrastructure (Postgres)─┘
 ```
 
-| Layer | Isi | Tahu apa? |
-| --- | --- | --- |
-| `domain` | entity `Comment`, value object, trait `CommentRepository` | tidak tahu HTTP maupun SQL |
-| `application` | `CommentService` (use case) | hanya tahu trait domain |
-| `infrastructure` | pool sqlx, `PgCommentRepository`, migrasi | tahu Postgres |
-| `presentation` | router, handler, DTO, format respons | tahu HTTP |
+| Layer            | Isi                                                       | Tahu apa?                  |
+| ---------------- | --------------------------------------------------------- | -------------------------- |
+| `domain`         | entity `Comment`, value object, trait `CommentRepository` | tidak tahu HTTP maupun SQL |
+| `application`    | `CommentService` (use case)                               | hanya tahu trait domain    |
+| `infrastructure` | pool sqlx, `PgCommentRepository`, migrasi                 | tahu Postgres              |
+| `presentation`   | router, handler, DTO, format respons                      | tahu HTTP                  |
 
 Manfaat konkretnya ada di `tests/comment_service.rs`: seluruh use case diuji
 dengan repository in-memory — **tanpa** Postgres, tanpa HTTP server, selesai
@@ -75,15 +75,15 @@ src/
 Migrasi ada di `migrations/` dan **ikut ter-embed di dalam binary**, lalu
 dijalankan otomatis saat startup — deploy cukup mengirim satu file biner.
 
-| Kolom | Tipe | Catatan |
-| --- | --- | --- |
-| `id` | `UUID` | dibuat server (`gen_random_uuid()`), bukan lagi dari klien |
-| `name` | `TEXT` | wajib, maks. 100 karakter |
-| `status` | `TEXT` | wajib, maks. 32 karakter — tetap teks bebas agar data lama dari sheet bisa masuk apa adanya |
-| `message` | `TEXT` | wajib, maks. 1.000 karakter |
-| `color` | `TEXT` | hex (`#fff`, `#a1b2c3`) atau nama warna CSS; default `#000000` |
-| `commented_at` | `TIMESTAMPTZ` | kolom `date` versi sheet; di API tetap bernama `date` |
-| `created_at` / `updated_at` | `TIMESTAMPTZ` | jejak waktu baris |
+| Kolom                       | Tipe          | Catatan                                                                                     |
+| --------------------------- | ------------- | ------------------------------------------------------------------------------------------- |
+| `id`                        | `UUID`        | dibuat server (`gen_random_uuid()`), bukan lagi dari klien                                  |
+| `name`                      | `TEXT`        | wajib, maks. 100 karakter                                                                   |
+| `status`                    | `TEXT`        | wajib, maks. 32 karakter — tetap teks bebas agar data lama dari sheet bisa masuk apa adanya |
+| `message`                   | `TEXT`        | wajib, maks. 1.000 karakter                                                                 |
+| `color`                     | `TEXT`        | hex (`#fff`, `#a1b2c3`) atau nama warna CSS; default `#000000`                              |
+| `commented_at`              | `TIMESTAMPTZ` | kolom `date` versi sheet; di API tetap bernama `date`                                       |
+| `created_at` / `updated_at` | `TIMESTAMPTZ` | jejak waktu baris                                                                           |
 
 `date` dihindari sebagai nama kolom karena juga nama tipe di Postgres —
 penerjemahannya ditangani layer DTO.
@@ -96,26 +96,26 @@ Semua respons memakai satu envelope yang sama, termasuk saat error:
 { "status": 200, "message": "Berhasil mengambil data", "data": [ ... ], "meta": { ... } }
 ```
 
-| Method | Path | Keterangan |
-| --- | --- | --- |
-| `GET` | `/healthz` | health check |
-| `GET` | `/version` | versi, commit, waktu build — untuk verifikasi hasil deploy |
-| `GET` | `/api/comments` | daftar komentar (lihat query di bawah) |
-| `GET` | `/api/comments/{id}` | detail satu komentar |
-| `POST` | `/api/comments` | tambah komentar → `201` |
-| `PUT` | `/api/comments/{id}` | ubah sebagian field |
-| `DELETE` | `/api/comments/{id}` | hapus komentar |
-| `POST` | `/api/comments/sync` | tarik data dari Apps Script lama, simpan dengan nama sebagai kunci |
+| Method   | Path                 | Keterangan                                                         |
+| -------- | -------------------- | ------------------------------------------------------------------ |
+| `GET`    | `/healthz`           | health check                                                       |
+| `GET`    | `/version`           | versi, commit, waktu build — untuk verifikasi hasil deploy         |
+| `GET`    | `/api/comments`      | daftar komentar (lihat query di bawah)                             |
+| `GET`    | `/api/comments/{id}` | detail satu komentar                                               |
+| `POST`   | `/api/comments`      | tambah komentar → `201`                                            |
+| `PUT`    | `/api/comments/{id}` | ubah sebagian field                                                |
+| `DELETE` | `/api/comments/{id}` | hapus komentar                                                     |
+| `POST`   | `/api/comments/sync` | tarik data dari Apps Script lama, simpan dengan nama sebagai kunci |
 
 **Query `GET /api/comments`**
 
-| Parameter | Default | Keterangan |
-| --- | --- | --- |
-| `page` | `1` | nomor halaman |
-| `perPage` | `20` | maks. `100` (alias: `per_page`, `limit`) |
-| `status` | – | filter persis, mis. `?status=hadir` |
-| `q` | – | cari di nama atau pesan (alias: `search`) |
-| `sort` | `newest` | `newest` atau `oldest` |
+| Parameter | Default  | Keterangan                                |
+| --------- | -------- | ----------------------------------------- |
+| `page`    | `1`      | nomor halaman                             |
+| `perPage` | `20`     | maks. `100` (alias: `per_page`, `limit`)  |
+| `status`  | –        | filter persis, mis. `?status=hadir`       |
+| `q`       | –        | cari di nama atau pesan (alias: `search`) |
+| `sort`    | `newest` | `newest` atau `oldest`                    |
 
 Contoh:
 
@@ -166,7 +166,7 @@ itulah tanda sinkronisasinya idempoten.
 
 - **Kunci penjaga** dikirim di body sebagai `key` (boleh juga `secret` atau
   `token`), dicocokkan dengan `SYNC_SECRET`. Salah kunci → `401`.
-- **Endpoint mati kalau belum dikonfigurasi.** Tanpa `SYNC_SOURCE_URL` *dan*
+- **Endpoint mati kalau belum dikonfigurasi.** Tanpa `SYNC_SOURCE_URL` _dan_
   `SYNC_SECRET`, jawabannya `503` — tidak ada kunci default yang bisa ditebak.
 - **Pencocokan nama** mengabaikan huruf besar/kecil dan spasi di ujung: `"Budi "`
   dari sheet dianggap orang yang sama dengan `"budi"`. Ejaan terbaru dari sumber
@@ -262,13 +262,13 @@ ketergantungan versi glibc di server.
 4. Stop service → tukar binary → `daemon-reload` → restart → tampilkan status.
 
 Migrasi database tidak perlu langkah terpisah: dijalankan otomatis saat service
-menyala. Server merespons SIGTERM dengan *graceful shutdown*, jadi
+menyala. Server merespons SIGTERM dengan _graceful shutdown_, jadi
 `systemctl restart` tidak memutus request yang sedang berjalan.
 
 Verifikasi setelah deploy:
 
 ```bash
-curl https://api.simple-rust.artamananda.my.id/version
+curl https://api.annisaarta.novelle.id/version
 ```
 
 Ganti `server_name`, port (`127.0.0.1:8081`), dan nama host di

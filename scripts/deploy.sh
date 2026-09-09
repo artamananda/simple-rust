@@ -18,13 +18,34 @@ cd "$ROOT_DIR"
 # Production hanya merilis versi yang sudah diuji & di-commit.
 VERSION="$(read_version)"
 
-echo "==> [1/5] Build binary release ($DEPLOY_ARCH)..."
+echo "==> [1/6] Cek arsitektur & direktori di VPS..."
+# Dicek lebih dulu: binary dengan arsitektur salah baru ketahuan saat systemd
+# menjalankannya (status=203/EXEC), padahal service lama sudah terlanjur mati.
+REMOTE_ARCH="$(ssh -i "$SSH_KEY" -p "$VPS_PORT" "$VPS_USER@$VPS_HOST" "uname -m")"
+case "$REMOTE_ARCH" in
+    x86_64)  SERVER_ARCH="amd64" ;;
+    aarch64) SERVER_ARCH="arm64" ;;
+    *)       SERVER_ARCH="$REMOTE_ARCH" ;;
+esac
+
+if [[ "$SERVER_ARCH" != "$DEPLOY_ARCH" ]]; then
+    echo "VPS berarsitektur $REMOTE_ARCH ($SERVER_ARCH), tapi build diminta untuk $DEPLOY_ARCH." >&2
+    echo "Jalankan ulang: DEPLOY_ARCH=$SERVER_ARCH $0" >&2
+    exit 1
+fi
+echo "  -> $REMOTE_ARCH, cocok dengan build $DEPLOY_ARCH"
+
+# Direktori tujuan disiapkan di sini supaya deploy pertama tidak gagal di scp.
+ssh -i "$SSH_KEY" -p "$VPS_PORT" "$VPS_USER@$VPS_HOST" \
+    "sudo mkdir -p $REMOTE_DIR && sudo chown -R $VPS_USER:$VPS_USER $REMOTE_DIR && sudo chmod 755 $REMOTE_DIR"
+
+echo "==> [2/6] Build binary release ($DEPLOY_ARCH)..."
 build_binary "$TARGET" "$VERSION" "$APP_NAME"
 
-echo "==> [2/5] Copy .env production..."
+echo "==> [3/6] Copy .env production..."
 cp "$ROOT_DIR/keys/.env.production" .env
 
-echo "==> [3/5] Upload binary, .env, config, dan service ke VPS..."
+echo "==> [4/6] Upload binary, .env, config, dan service ke VPS..."
 # Binary dikirim ke nama sementara: file biner yang sedang berjalan tidak bisa
 # ditimpa langsung (Linux ETXTBSY / "Text file busy"). Tukar nama di VPS.
 scp -i "$SSH_KEY" -P "$VPS_PORT" \
@@ -36,10 +57,10 @@ scp -i "$SSH_KEY" -P "$VPS_PORT" \
     deploy/simple-rust.service \
     "$VPS_USER@$VPS_HOST:$REMOTE_DIR/"
 
-echo "==> [4/5] Bersihkan artefak lokal..."
+echo "==> [5/6] Bersihkan artefak lokal..."
 rm -f "$APP_NAME" .env
 
-echo "==> [5/5] Pasang service & reload nginx di VPS..."
+echo "==> [6/6] Pasang service & reload nginx di VPS..."
 ssh -i "$SSH_KEY" -p "$VPS_PORT" "$VPS_USER@$VPS_HOST" bash <<EOSSH
 set -e
 cd $REMOTE_DIR
@@ -47,7 +68,21 @@ cd $REMOTE_DIR
 echo "  -> stop service & tukar binary"
 sudo systemctl stop $APP_NAME.service || true
 mv -f $APP_NAME.new $APP_NAME
-chmod +x $APP_NAME
+# chmod 755, bukan "chmod +x": kalau umask di server bikin file jadi 600,
+# "+x" hanya menghasilkan 700 dan service (jalan sebagai www-data) kena
+# Permission denied yang muncul sebagai status=203/EXEC.
+chmod 755 $APP_NAME
+# .env berisi kredensial. Cukup 600 milik user deploy: systemd (PID 1, root)
+# yang membacanya lalu meneruskan isinya ke proses, jadi www-data tidak perlu
+# akses — dan file tetap bisa ditimpa scp pada deploy berikutnya.
+chmod 600 .env
+
+echo "  -> pastikan binary bisa dijalankan service user"
+sudo -u www-data test -x $REMOTE_DIR/$APP_NAME || {
+    echo "www-data tidak bisa mengeksekusi $REMOTE_DIR/$APP_NAME — cek izin folder induknya:" >&2
+    namei -l $REMOTE_DIR/$APP_NAME >&2 || true
+    exit 1
+}
 
 echo "  -> pasang nginx config"
 sudo cp -f simple-rust-production.conf /etc/nginx/conf.d/simple-rust-production.conf
@@ -65,5 +100,5 @@ sudo systemctl status $APP_NAME.service --no-pager -l
 EOSSH
 
 echo ""
-echo "Backend deployed successfully (v$VERSION) -> https://api.simple-rust.artamananda.my.id"
-echo "   Cek hasil deploy: curl https://api.simple-rust.artamananda.my.id/version"
+echo "Backend deployed successfully (v$VERSION) -> https://api.annisaarta.novelle.id"
+echo "   Cek hasil deploy: curl https://api.annisaarta.novelle.id/version"
