@@ -47,6 +47,16 @@ cd $REMOTE_DIR
 
 echo "  -> stop service & tukar binary"
 sudo systemctl stop $APP_NAME.service || true
+
+# Kalau $APP_NAME kebetulan sebuah direktori, "mv -f" tidak menimpanya —
+# ia memindahkan biner KE DALAM direktori itu, dan ExecStart lalu menunjuk
+# direktori (systemd melaporkannya sebagai status=203/EXEC).
+if [ -d "$APP_NAME" ]; then
+    echo "ERROR: $REMOTE_DIR/$APP_NAME adalah direktori, bukan file biner." >&2
+    echo "Pindahkan/hapus direktori itu lebih dulu, lalu deploy ulang." >&2
+    exit 1
+fi
+
 mv -f $APP_NAME.new $APP_NAME
 # chmod 755, bukan "chmod +x" — lihat catatan di deploy.sh.
 chmod 755 $APP_NAME
@@ -54,6 +64,13 @@ chmod 755 $APP_NAME
 # yang membacanya lalu meneruskan isinya ke proses, jadi www-data tidak perlu
 # akses — dan file tetap bisa ditimpa scp pada deploy berikutnya.
 chmod 600 .env
+
+echo "  -> pastikan binary bisa dijalankan service user"
+sudo -u www-data test -f $REMOTE_DIR/$APP_NAME -a -x $REMOTE_DIR/$APP_NAME || {
+    echo "www-data tidak bisa mengeksekusi $REMOTE_DIR/$APP_NAME:" >&2
+    namei -l $REMOTE_DIR/$APP_NAME >&2 || true
+    exit 1
+}
 
 echo "  -> pasang & restart systemd service"
 sudo cp -f simple-rust-dev.service /etc/systemd/system/$APP_NAME.service

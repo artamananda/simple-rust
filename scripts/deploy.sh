@@ -67,6 +67,16 @@ cd $REMOTE_DIR
 
 echo "  -> stop service & tukar binary"
 sudo systemctl stop $APP_NAME.service || true
+
+# Kalau $APP_NAME kebetulan sebuah direktori, "mv -f" tidak menimpanya —
+# ia memindahkan biner KE DALAM direktori itu, dan ExecStart lalu menunjuk
+# direktori (systemd melaporkannya sebagai status=203/EXEC).
+if [ -d "$APP_NAME" ]; then
+    echo "ERROR: $REMOTE_DIR/$APP_NAME adalah direktori, bukan file biner." >&2
+    echo "Pindahkan/hapus direktori itu lebih dulu, lalu deploy ulang." >&2
+    exit 1
+fi
+
 mv -f $APP_NAME.new $APP_NAME
 # chmod 755, bukan "chmod +x": kalau umask di server bikin file jadi 600,
 # "+x" hanya menghasilkan 700 dan service (jalan sebagai www-data) kena
@@ -78,7 +88,7 @@ chmod 755 $APP_NAME
 chmod 600 .env
 
 echo "  -> pastikan binary bisa dijalankan service user"
-sudo -u www-data test -x $REMOTE_DIR/$APP_NAME || {
+sudo -u www-data test -f $REMOTE_DIR/$APP_NAME -a -x $REMOTE_DIR/$APP_NAME || {
     echo "www-data tidak bisa mengeksekusi $REMOTE_DIR/$APP_NAME — cek izin folder induknya:" >&2
     namei -l $REMOTE_DIR/$APP_NAME >&2 || true
     exit 1
