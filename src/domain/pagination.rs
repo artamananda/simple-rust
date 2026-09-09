@@ -11,8 +11,8 @@ pub struct Pagination {
 }
 
 impl Pagination {
-    pub const DEFAULT_PER_PAGE: u32 = 1000;
-    pub const MAX_PER_PAGE: u32 = 1000;
+    pub const DEFAULT_PER_PAGE: u32 = 10;
+    pub const MAX_PER_PAGE: u32 = 100;
 
     pub fn new(page: u32, per_page: u32) -> Result<Self, DomainError> {
         if page == 0 {
