@@ -7,6 +7,7 @@ use uuid::Uuid;
 use super::comment::{Comment, NewComment, UpdateComment};
 use super::error::DomainError;
 use super::pagination::{Page, Pagination};
+use super::sync::SyncStats;
 
 pub type RepositoryResult<T> = Result<T, RepositoryError>;
 
@@ -69,6 +70,11 @@ pub trait CommentRepository: Send + Sync + 'static {
 
     /// `false` kalau tidak ada baris yang terhapus.
     async fn delete(&self, id: Uuid) -> RepositoryResult<bool>;
+
+    /// Menyimpan sekumpulan komentar dengan **nama sebagai kunci**: nama yang
+    /// sudah ada diperbarui, yang belum ada ditambahkan. Dipakai endpoint sync
+    /// agar bisa dijalankan berulang kali tanpa menggandakan data.
+    async fn upsert_many_by_name(&self, inputs: &[NewComment]) -> RepositoryResult<SyncStats>;
 }
 
 #[cfg(test)]

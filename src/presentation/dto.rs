@@ -8,7 +8,8 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::domain::{
-    Comment, DomainError, ListCommentsQuery, NewComment, Pagination, SortOrder, UpdateComment,
+    Comment, DomainError, ListCommentsQuery, NewComment, Pagination, SortOrder, SyncReport,
+    UpdateComment,
 };
 
 /// Body untuk `POST /api/comments`.
@@ -143,6 +144,58 @@ impl From<&Comment> for CommentResponse {
 impl From<Comment> for CommentResponse {
     fn from(comment: Comment) -> Self {
         Self::from(&comment)
+    }
+}
+
+/// Body untuk `POST /api/comments/sync` — kata kunci penjaga endpoint.
+///
+/// `secret` dan `token` diterima sebagai nama lain agar klien tidak perlu
+/// hafal satu ejaan saja.
+#[derive(Debug, Default, Deserialize)]
+pub struct SyncRequest {
+    #[serde(default, alias = "secret", alias = "token")]
+    pub key: Option<String>,
+}
+
+impl SyncRequest {
+    pub fn key(&self) -> &str {
+        self.key.as_deref().unwrap_or_default().trim()
+    }
+}
+
+/// Ringkasan hasil sinkronisasi.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncResponse {
+    /// Jumlah baris yang diterima dari sumber, termasuk yang dilewati.
+    pub fetched: u32,
+    pub created: u32,
+    pub updated: u32,
+    pub skipped: Vec<SkippedResponse>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkippedResponse {
+    pub name: String,
+    pub reason: String,
+}
+
+impl From<SyncReport> for SyncResponse {
+    fn from(report: SyncReport) -> Self {
+        Self {
+            fetched: report.fetched,
+            created: report.created,
+            updated: report.updated,
+            skipped: report
+                .skipped
+                .into_iter()
+                .map(|item| SkippedResponse {
+                    name: item.name,
+                    reason: item.reason,
+                })
+                .collect(),
+        }
     }
 }
 

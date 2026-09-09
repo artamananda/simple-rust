@@ -12,8 +12,11 @@ use uuid::Uuid;
 
 use crate::domain::{
     Comment, CommentRepository, DomainError, ListCommentsQuery, NewComment, Page, RepositoryError,
-    RepositoryResult, SortOrder, UpdateComment,
+    RepositoryResult, SortOrder, SyncStats, UpdateComment,
 };
+
+/// Kunci pengunci antar-transaksi untuk endpoint sync ("SYNC" dalam heksa).
+const SYNC_LOCK_KEY: i64 = 0x5359_4E43;
 
 const COLUMNS: &str = "id, name, status, message, color, commented_at, created_at, updated_at";
 
@@ -136,6 +139,84 @@ impl CommentRepository for PgCommentRepository {
             .map_err(backend)?;
 
         Ok(result.rows_affected() > 0)
+    }
+
+    async fn upsert_many_by_name(&self, inputs: &[NewComment]) -> RepositoryResult<SyncStats> {
+        // Seluruh sinkronisasi berjalan dalam satu transaksi: kalau ada baris
+        // yang gagal, tidak ada yang setengah tersimpan.
+        let mut tx = self.pool.begin().await.map_err(backend)?;
+
+        // Kunci tingkat transaksi membuat dua sync yang berjalan bersamaan
+        // antre, bukan sama-sama menyisipkan nama yang sama.
+        sqlx::query("SELECT pg_advisory_xact_lock($1)")
+            .bind(SYNC_LOCK_KEY)
+            .execute(&mut *tx)
+            .await
+            .map_err(backend)?;
+
+        let mut stats = SyncStats::default();
+
+        for input in inputs {
+            // Pencocokan mengabaikan huruf besar/kecil dan spasi di ujung —
+            // "Budi " dari sheet dianggap orang yang sama dengan "budi".
+            let existing: Option<Uuid> = sqlx::query_scalar(
+                "SELECT id FROM comments
+                  WHERE lower(btrim(name)) = lower(btrim($1))
+                  ORDER BY created_at
+                  LIMIT 1",
+            )
+            .bind(input.name.as_str())
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(backend)?;
+
+            match existing {
+                // Nama ikut ditulis ulang supaya ejaan terbaru dari sumber menang.
+                Some(id) => {
+                    sqlx::query(
+                        "UPDATE comments
+                            SET name         = $2,
+                                status       = $3,
+                                message      = $4,
+                                color        = $5,
+                                commented_at = $6,
+                                updated_at   = NOW()
+                          WHERE id = $1",
+                    )
+                    .bind(id)
+                    .bind(input.name.as_str())
+                    .bind(input.status.as_str())
+                    .bind(input.message.as_str())
+                    .bind(input.color.as_str())
+                    .bind(input.date)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(backend)?;
+
+                    stats.updated += 1;
+                }
+                None => {
+                    sqlx::query(
+                        "INSERT INTO comments (name, status, message, color, commented_at)
+                         VALUES ($1, $2, $3, $4, $5)",
+                    )
+                    .bind(input.name.as_str())
+                    .bind(input.status.as_str())
+                    .bind(input.message.as_str())
+                    .bind(input.color.as_str())
+                    .bind(input.date)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(backend)?;
+
+                    stats.created += 1;
+                }
+            }
+        }
+
+        tx.commit().await.map_err(backend)?;
+
+        Ok(stats)
     }
 }
 

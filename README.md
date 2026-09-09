@@ -35,12 +35,15 @@ src/
 │   ├── comment.rs          # entity + value object (validasi ada di sini)
 │   ├── pagination.rs       # Pagination & Page
 │   ├── repository.rs       # trait CommentRepository (kontrak, bukan implementasi)
+│   ├── sync.rs             # trait CommentSource + laporan sinkronisasi
 │   └── error.rs            # DomainError
 ├── application/
 │   ├── comment_service.rs  # use case: list, get, create, update, delete
-│   └── error.rs            # ServiceError (validasi / not found / tak terduga)
+│   ├── sync_service.rs     # use case: sinkronisasi dari sumber luar
+│   └── error.rs            # ServiceError (validasi / not found / upstream / tak terduga)
 ├── infrastructure/
 │   ├── db.rs               # pool koneksi + migrasi
+│   ├── http/apps_script_source.rs   # adapter ke endpoint Apps Script lama
 │   └── postgres/comment_repository.rs
 └── presentation/
     ├── router.rs           # rute + CORS + trace + timeout
@@ -63,6 +66,9 @@ src/
   `Arc<dyn CommentRepository>`, jadi implementasinya bisa ditukar.
 - **Entity ≠ baris database ≠ JSON** — `CommentRow` (sqlx) dan `CommentResponse`
   (serde) terpisah dari entity, sehingga nama kolom dan nama field API bebas berbeda.
+- **Anti-corruption layer** — bentuk respons Apps Script (`comentar`, `id` angka,
+  tanggal string) hanya dikenal di `infrastructure/http/apps_script_source.rs`.
+  Sisa aplikasi tidak tahu data itu pernah tinggal di spreadsheet.
 
 ## Skema database
 
@@ -99,6 +105,7 @@ Semua respons memakai satu envelope yang sama, termasuk saat error:
 | `POST` | `/api/comments` | tambah komentar → `201` |
 | `PUT` | `/api/comments/{id}` | ubah sebagian field |
 | `DELETE` | `/api/comments/{id}` | hapus komentar |
+| `POST` | `/api/comments/sync` | tarik data dari Apps Script lama, simpan dengan nama sebagai kunci |
 
 **Query `GET /api/comments`**
 
@@ -131,6 +138,55 @@ Error selalu berbentuk sama dan menyebut field yang bermasalah:
 ```json
 { "status": 400, "message": "name: wajib diisi" }
 ```
+
+## Sinkronisasi dari Apps Script
+
+Endpoint ini menarik seluruh komentar dari endpoint Apps Script lama lalu
+memasukkannya ke Postgres, **dengan nama sebagai kunci** — aman dijalankan
+berkali-kali tanpa menggandakan data.
+
+```bash
+curl -X POST http://localhost:8080/api/comments/sync \
+  -H 'Content-Type: application/json' \
+  -d '{"key":"jerapah"}'
+```
+
+```json
+{
+  "status": 200,
+  "message": "Sinkronisasi selesai",
+  "data": { "fetched": 22, "created": 22, "updated": 0, "skipped": [] }
+}
+```
+
+Jalankan lagi dengan data yang sama, hasilnya `created: 0, updated: 22` —
+itulah tanda sinkronisasinya idempoten.
+
+**Aturan mainnya**
+
+- **Kunci penjaga** dikirim di body sebagai `key` (boleh juga `secret` atau
+  `token`), dicocokkan dengan `SYNC_SECRET`. Salah kunci → `401`.
+- **Endpoint mati kalau belum dikonfigurasi.** Tanpa `SYNC_SOURCE_URL` *dan*
+  `SYNC_SECRET`, jawabannya `503` — tidak ada kunci default yang bisa ditebak.
+- **Pencocokan nama** mengabaikan huruf besar/kecil dan spasi di ujung: `"Budi "`
+  dari sheet dianggap orang yang sama dengan `"budi"`. Ejaan terbaru dari sumber
+  yang menang. (Data aslimu memang punya satu nama berspasi di ujung.)
+- **Satu transaksi + advisory lock.** Kalau ada baris yang gagal, tidak ada yang
+  setengah tersimpan; dua sync yang berjalan bersamaan akan antre, bukan
+  sama-sama menyisipkan nama yang sama.
+- **Baris cacat dilewati, bukan didiamkan.** Baris tanpa nama atau bertanggal
+  tak terbaca masuk ke daftar `skipped` lengkap dengan alasannya, sementara
+  baris lain tetap tersimpan:
+  ```json
+  "skipped": [{ "name": "Tanggal Rusak", "reason": "date: 'bukan tanggal' bukan tanggal RFC 3339" }]
+  ```
+- **`id` dari sheet diabaikan** — Postgres yang membuat UUID-nya.
+- **Sumber bermasalah → `502`**, dibedakan dari error kita sendiri (`500`).
+- Apps Script bisa lambat (pernah terukur **45 detik** untuk satu GET), jadi
+  timeout klien longgar: `SYNC_TIMEOUT_SECONDS`, default 120 detik.
+
+Sinkronisasi hanya menambah dan memperbarui; komentar yang dihapus di
+spreadsheet **tidak** ikut terhapus di Postgres.
 
 ## Menjalankan di lokal
 

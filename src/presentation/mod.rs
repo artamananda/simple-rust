@@ -12,4 +12,4 @@ pub mod state;
 pub use error::ApiError;
 pub use response::ApiResponse;
 pub use router::build_router;
-pub use state::AppState;
+pub use state::{AppState, SyncEndpoint};

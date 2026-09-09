@@ -6,6 +6,8 @@
 
 pub mod comment_service;
 pub mod error;
+pub mod sync_service;
 
 pub use comment_service::CommentService;
 pub use error::{ServiceError, ServiceResult};
+pub use sync_service::SyncService;

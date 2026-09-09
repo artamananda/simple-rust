@@ -9,10 +9,11 @@ use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use chrono::Utc;
-use simple_rust::application::{CommentService, ServiceError};
+use simple_rust::application::{CommentService, ServiceError, SyncService};
 use simple_rust::domain::{
-    Comment, CommentRepository, ListCommentsQuery, NewComment, Page, Pagination, RepositoryResult,
-    SortOrder, UpdateComment,
+    Comment, CommentRepository, CommentSource, FetchedComments, ListCommentsQuery, NewComment,
+    Page, Pagination, RepositoryResult, SkippedComment, SortOrder, SourceError, SyncStats,
+    UpdateComment,
 };
 use uuid::Uuid;
 
@@ -108,6 +109,78 @@ impl CommentRepository for InMemoryCommentRepository {
         items.retain(|comment| comment.id != id);
 
         Ok(items.len() != before)
+    }
+
+    async fn upsert_many_by_name(&self, inputs: &[NewComment]) -> RepositoryResult<SyncStats> {
+        let mut stats = SyncStats::default();
+
+        for input in inputs {
+            let key = input.name.as_str().trim().to_lowercase();
+            let mut items = self.lock();
+
+            match items
+                .iter_mut()
+                .find(|comment| comment.name.as_str().trim().to_lowercase() == key)
+            {
+                Some(existing) => {
+                    existing.name = input.name.clone();
+                    existing.status = input.status.clone();
+                    existing.message = input.message.clone();
+                    existing.color = input.color.clone();
+                    existing.date = input.date;
+                    existing.updated_at = Utc::now();
+                    stats.updated += 1;
+                }
+                None => {
+                    let now = Utc::now();
+                    items.push(Comment {
+                        id: Uuid::new_v4(),
+                        name: input.name.clone(),
+                        status: input.status.clone(),
+                        message: input.message.clone(),
+                        color: input.color.clone(),
+                        date: input.date,
+                        created_at: now,
+                        updated_at: now,
+                    });
+                    stats.created += 1;
+                }
+            }
+        }
+
+        Ok(stats)
+    }
+}
+
+/// Sumber palsu: mengembalikan apa yang disiapkan test, tanpa menyentuh jaringan.
+struct FakeSource {
+    result: Mutex<Option<Result<FetchedComments, SourceError>>>,
+}
+
+impl FakeSource {
+    fn returning(comments: Vec<NewComment>, skipped: Vec<SkippedComment>) -> Self {
+        Self {
+            result: Mutex::new(Some(Ok(FetchedComments { comments, skipped }))),
+        }
+    }
+
+    fn failing() -> Self {
+        Self {
+            result: Mutex::new(Some(Err(SourceError::Unreachable(anyhow::anyhow!(
+                "koneksi timeout"
+            ))))),
+        }
+    }
+}
+
+#[async_trait]
+impl CommentSource for FakeSource {
+    async fn fetch_all(&self) -> Result<FetchedComments, SourceError> {
+        self.result
+            .lock()
+            .expect("mutex tidak diracuni")
+            .take()
+            .unwrap_or_else(|| Ok(FetchedComments::default()))
     }
 }
 
@@ -231,4 +304,123 @@ async fn input_tidak_valid_ditolak_sebelum_menyentuh_repository() {
     let err = NewComment::new("Arta", "hadir", "halo", Some("bukan-warna!!"), None)
         .expect_err("warna ngawur");
     assert!(err.to_string().contains("color"));
+}
+
+// ── Sinkronisasi ────────────────────────────────────────────────────────────
+
+#[tokio::test]
+async fn sync_menambahkan_data_baru_lalu_memperbaruinya_saat_diulang() {
+    let repository = Arc::new(InMemoryCommentRepository::default());
+
+    let batch = || vec![komentar("Arta", "Hadir"), komentar("Budi", "Tidak Hadir")];
+
+    // Jalan pertama: dua-duanya baru.
+    let first = SyncService::new(
+        Arc::new(FakeSource::returning(batch(), vec![])),
+        repository.clone(),
+    )
+    .run()
+    .await
+    .expect("sync berhasil");
+    assert_eq!((first.created, first.updated), (2, 0));
+
+    // Jalan kedua dengan data sama: tidak ada yang digandakan.
+    let second = SyncService::new(
+        Arc::new(FakeSource::returning(batch(), vec![])),
+        repository.clone(),
+    )
+    .run()
+    .await
+    .expect("sync berhasil");
+    assert_eq!(
+        (second.created, second.updated),
+        (0, 2),
+        "sync harus idempoten"
+    );
+
+    let all = CommentService::new(repository)
+        .list(ListCommentsQuery::default())
+        .await
+        .expect("berhasil");
+    assert_eq!(all.total, 2, "tidak ada duplikat setelah sync berulang");
+}
+
+#[tokio::test]
+async fn sync_mencocokkan_nama_tanpa_peduli_huruf_besar_kecil_dan_spasi() {
+    let repository = Arc::new(InMemoryCommentRepository::default());
+
+    SyncService::new(
+        Arc::new(FakeSource::returning(
+            vec![komentar("Arta", "Hadir")],
+            vec![],
+        )),
+        repository.clone(),
+    )
+    .run()
+    .await
+    .expect("sync pertama");
+
+    let report = SyncService::new(
+        Arc::new(FakeSource::returning(
+            vec![NewComment::new("  aRtA  ", "Tidak Hadir", "berubah", None, None).expect("valid")],
+            vec![],
+        )),
+        repository.clone(),
+    )
+    .run()
+    .await
+    .expect("sync kedua");
+
+    assert_eq!((report.created, report.updated), (0, 1));
+
+    let all = CommentService::new(repository)
+        .list(ListCommentsQuery::default())
+        .await
+        .expect("berhasil");
+    assert_eq!(all.total, 1);
+    assert_eq!(
+        all.items[0].name.as_str(),
+        "aRtA",
+        "ejaan terbaru dari sumber menang"
+    );
+    assert_eq!(all.items[0].status.as_str(), "Tidak Hadir");
+}
+
+#[tokio::test]
+async fn sync_melaporkan_baris_yang_dilewati_tanpa_menggagalkan_sisanya() {
+    let repository = Arc::new(InMemoryCommentRepository::default());
+    let skipped = vec![SkippedComment {
+        name: "Tanggal Rusak".to_owned(),
+        reason: "date: bukan tanggal RFC 3339".to_owned(),
+    }];
+
+    let report = SyncService::new(
+        Arc::new(FakeSource::returning(
+            vec![komentar("Arta", "Hadir")],
+            skipped,
+        )),
+        repository,
+    )
+    .run()
+    .await
+    .expect("sync berhasil");
+
+    assert_eq!(
+        report.fetched, 2,
+        "yang dilewati tetap dihitung sebagai diterima"
+    );
+    assert_eq!(report.created, 1);
+    assert_eq!(report.skipped.len(), 1);
+    assert_eq!(report.skipped[0].name, "Tanggal Rusak");
+}
+
+#[tokio::test]
+async fn sumber_bermasalah_dilaporkan_sebagai_upstream() {
+    let service = SyncService::new(
+        Arc::new(FakeSource::failing()),
+        Arc::new(InMemoryCommentRepository::default()),
+    );
+
+    let err = service.run().await.expect_err("sumber mati");
+    assert!(matches!(err, ServiceError::Upstream(_)), "dapat: {err:?}");
 }

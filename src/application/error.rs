@@ -2,7 +2,7 @@
 
 use thiserror::Error;
 
-use crate::domain::{DomainError, RepositoryError};
+use crate::domain::{DomainError, RepositoryError, SourceError};
 
 pub type ServiceResult<T> = Result<T, ServiceError>;
 
@@ -19,6 +19,17 @@ pub enum ServiceError {
     /// Kegagalan teknis -> 500 (detailnya dicatat di log, bukan dikirim ke klien).
     #[error(transparent)]
     Unexpected(#[from] anyhow::Error),
+
+    /// Sumber data pihak ketiga bermasalah -> 502. Dibedakan dari `Unexpected`
+    /// karena penyebabnya di luar kendali kita, dan pesannya aman ditampilkan.
+    #[error("{0}")]
+    Upstream(#[source] anyhow::Error),
+}
+
+impl From<SourceError> for ServiceError {
+    fn from(err: SourceError) -> Self {
+        Self::Upstream(anyhow::Error::new(err))
+    }
 }
 
 impl From<RepositoryError> for ServiceError {

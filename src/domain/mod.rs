@@ -8,6 +8,7 @@ pub mod comment;
 pub mod error;
 pub mod pagination;
 pub mod repository;
+pub mod sync;
 
 pub use comment::{
     Comment, CommentColor, CommentMessage, CommentName, CommentStatus, NewComment, UpdateComment,
@@ -16,4 +17,7 @@ pub use error::DomainError;
 pub use pagination::{Page, Pagination};
 pub use repository::{
     CommentRepository, ListCommentsQuery, RepositoryError, RepositoryResult, SortOrder,
+};
+pub use sync::{
+    CommentSource, FetchedComments, SkippedComment, SourceError, SyncReport, SyncStats,
 };

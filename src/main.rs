@@ -6,12 +6,13 @@
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
-use simple_rust::application::CommentService;
+use simple_rust::application::{CommentService, SyncService};
 use simple_rust::build_info;
 use simple_rust::config::Config;
 use simple_rust::infrastructure::db;
+use simple_rust::infrastructure::http::AppsScriptCommentSource;
 use simple_rust::infrastructure::postgres::PgCommentRepository;
-use simple_rust::presentation::{AppState, build_router};
+use simple_rust::presentation::{AppState, SyncEndpoint, build_router};
 use tokio::net::TcpListener;
 use tokio::signal;
 use tracing_subscriber::EnvFilter;
@@ -38,8 +39,28 @@ async fn main() -> Result<()> {
 
     // Wiring: repository -> service -> state -> router.
     let repository = Arc::new(PgCommentRepository::new(pool.clone()));
-    let service = Arc::new(CommentService::new(repository));
-    let router = build_router(AppState::new(service), &cfg.http);
+    let service = Arc::new(CommentService::new(repository.clone()));
+
+    let sync = match &cfg.sync {
+        Some(sync_cfg) => {
+            let source = Arc::new(AppsScriptCommentSource::new(
+                sync_cfg.source_url.clone(),
+                sync_cfg.timeout,
+            )?);
+            tracing::info!(url = %sync_cfg.source_url, "endpoint sync aktif");
+
+            Some(SyncEndpoint {
+                service: Arc::new(SyncService::new(source, repository)),
+                secret: Arc::from(sync_cfg.secret.as_str()),
+            })
+        }
+        None => {
+            tracing::info!("endpoint sync nonaktif (SYNC_SOURCE_URL/SYNC_SECRET belum diisi)");
+            None
+        }
+    };
+
+    let router = build_router(AppState::new(service, sync), &cfg.http);
 
     let listener = TcpListener::bind(&cfg.http.addr)
         .await

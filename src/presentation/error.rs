@@ -48,6 +48,10 @@ impl From<ServiceError> for ApiError {
         match err {
             ServiceError::Validation(err) => Self::bad_request(err.to_string()),
             ServiceError::NotFound => Self::not_found("Komentar tidak ditemukan"),
+            ServiceError::Upstream(err) => {
+                tracing::warn!(error = ?err, "sumber data pihak ketiga bermasalah");
+                Self::new(StatusCode::BAD_GATEWAY, err.to_string())
+            }
             ServiceError::Unexpected(err) => {
                 // Detail teknis hanya untuk log; klien cukup tahu ada kegagalan server.
                 tracing::error!(error = ?err, "kesalahan tak terduga");

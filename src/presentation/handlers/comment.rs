@@ -7,10 +7,12 @@
 use axum::Json;
 use axum::extract::rejection::{JsonRejection, PathRejection, QueryRejection};
 use axum::extract::{Path, Query, State};
+use axum::http::StatusCode;
 use uuid::Uuid;
 
 use crate::presentation::dto::{
-    CommentResponse, CreateCommentRequest, ListCommentsParams, UpdateCommentRequest,
+    CommentResponse, CreateCommentRequest, ListCommentsParams, SyncRequest, SyncResponse,
+    UpdateCommentRequest,
 };
 use crate::presentation::error::ApiError;
 use crate::presentation::response::{ApiResponse, PageMeta};
@@ -79,4 +81,42 @@ pub async fn delete(
     state.comments.delete(id).await?;
 
     Ok(ApiResponse::message("Data berhasil dihapus"))
+}
+
+/// `POST /api/comments/sync`
+///
+/// Menarik komentar dari sumber luar (endpoint Apps Script lama) lalu
+/// menyimpannya dengan nama sebagai kunci — aman dijalankan berulang kali.
+/// Dijaga kata kunci di body; nilainya diatur lewat `SYNC_SECRET`.
+pub async fn sync(
+    State(state): State<AppState>,
+    payload: Result<Json<SyncRequest>, JsonRejection>,
+) -> ApiResult<ApiResponse<SyncResponse>> {
+    let Json(payload) = payload?;
+
+    let Some(endpoint) = state.sync else {
+        return Err(ApiError::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Sinkronisasi belum dikonfigurasi (isi SYNC_SOURCE_URL dan SYNC_SECRET)",
+        ));
+    };
+
+    if payload.key() != &*endpoint.secret {
+        // Alasan penolakan sengaja tidak dirinci.
+        return Err(ApiError::new(
+            StatusCode::UNAUTHORIZED,
+            "Kata kunci sinkronisasi tidak sesuai",
+        ));
+    }
+
+    let report = endpoint.service.run().await?;
+    tracing::info!(
+        fetched = report.fetched,
+        created = report.created,
+        updated = report.updated,
+        skipped = report.skipped.len(),
+        "sinkronisasi selesai"
+    );
+
+    Ok(ApiResponse::ok("Sinkronisasi selesai", report.into()))
 }

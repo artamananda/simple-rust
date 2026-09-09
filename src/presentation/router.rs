@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use axum::Router;
 use axum::http::{HeaderValue, Method, StatusCode, Uri, header};
-use axum::routing::get;
+use axum::routing::{get, post};
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::timeout::TimeoutLayer;
 use tower_http::trace::TraceLayer;
@@ -17,6 +17,9 @@ use crate::presentation::state::AppState;
 pub fn build_router(state: AppState, cfg: &HttpConfig) -> Router {
     let comments = Router::new()
         .route("/comments", get(comment::list).post(comment::create))
+        // Didaftarkan sebelum "/comments/{id}" bukan karena urutan menentukan
+        // (matchit memprioritaskan segmen literal), tapi agar mudah dibaca.
+        .route("/comments/sync", post(comment::sync))
         .route(
             "/comments/{id}",
             get(comment::detail)
