@@ -8,6 +8,9 @@ use anyhow::{Context, Result, bail};
 pub struct Config {
     pub http: HttpConfig,
     pub database: DatabaseConfig,
+    /// Selisih jam dari UTC untuk menafsirkan tanggal tanpa zona waktu yang
+    /// dikirim frontend lama (mis. "2026-09-09 23:42"). Default +7 (WIB).
+    pub legacy_utc_offset_hours: i32,
     /// `None` kalau endpoint sync belum dikonfigurasi — fiturnya mati, bukan
     /// jalan dengan nilai default yang bisa ditebak orang.
     pub sync: Option<SyncConfig>,
@@ -66,6 +69,7 @@ impl Config {
                 acquire_timeout: Duration::from_secs(number("DB_ACQUIRE_TIMEOUT_SECONDS", 10)?),
             },
             sync: sync_from_env()?,
+            legacy_utc_offset_hours: signed_number("LEGACY_UTC_OFFSET_HOURS", 7)?,
         })
     }
 }
@@ -97,6 +101,16 @@ fn optional(key: &str, fallback: &str) -> String {
     match std::env::var(key) {
         Ok(value) if !value.trim().is_empty() => value.trim().to_owned(),
         _ => fallback.to_owned(),
+    }
+}
+
+fn signed_number(key: &'static str, fallback: i32) -> Result<i32> {
+    match std::env::var(key) {
+        Ok(value) if !value.trim().is_empty() => value
+            .trim()
+            .parse()
+            .with_context(|| format!("{key} harus berupa angka")),
+        _ => Ok(fallback),
     }
 }
 

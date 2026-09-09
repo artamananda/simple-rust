@@ -15,32 +15,34 @@ TARGET="$(rust_target "$DEPLOY_ARCH")"
 
 cd "$ROOT_DIR"
 
-echo "==> [1/6] Naikkan versi & build binary ($DEPLOY_ARCH)..."
+echo "==> [1/5] Naikkan versi & build binary ($DEPLOY_ARCH)..."
 # Commit versi ditunda sampai deploy sukses (langkah terakhir) supaya deploy
 # yang gagal tidak meninggalkan commit rilis.
 VERSION="$(bump_version)"
 build_binary "$TARGET" "$VERSION" "$APP_NAME"
 
-echo "==> [2/6] Copy .env dev..."
-cp "$ROOT_DIR/keys/.env.dev" .env
-
-echo "==> [3/6] Pastikan direktori remote ada..."
+echo "==> [2/5] Pastikan direktori remote ada..."
 ssh -i "$SSH_KEY" -p "$VPS_PORT" "$VPS_USER@$VPS_HOST" \
     "sudo mkdir -p $REMOTE_DIR && sudo chown -R $VPS_USER:$VPS_USER $REMOTE_DIR"
 
-echo "==> [4/6] Upload binary, .env, dan service..."
+echo "==> [3/5] Upload binary, .env, dan service..."
 scp -i "$SSH_KEY" -P "$VPS_PORT" \
     "$APP_NAME" \
     "$VPS_USER@$VPS_HOST:$REMOTE_DIR/$APP_NAME.new"
 scp -i "$SSH_KEY" -P "$VPS_PORT" \
-    .env \
     deploy/simple-rust-dev.service \
     "$VPS_USER@$VPS_HOST:$REMOTE_DIR/"
+# .env dikirim langsung dari keys/ dan diganti namanya di tujuan.
+# Sebelumnya file ini disalin dulu ke root repo lalu dihapus saat cleanup —
+# yang berarti setiap deploy ikut menghapus .env development milik kita.
+scp -i "$SSH_KEY" -P "$VPS_PORT" \
+    "$ROOT_DIR/keys/.env.dev" \
+    "$VPS_USER@$VPS_HOST:$REMOTE_DIR/.env"
 
-echo "==> [5/6] Bersihkan artefak lokal..."
-rm -f "$APP_NAME" .env
+echo "==> [4/5] Bersihkan binary lokal..."
+rm -f "$APP_NAME"
 
-echo "==> [6/6] Pasang service di home server..."
+echo "==> [5/5] Pasang service di home server..."
 ssh -i "$SSH_KEY" -p "$VPS_PORT" "$VPS_USER@$VPS_HOST" bash <<EOSSH
 set -e
 cd $REMOTE_DIR

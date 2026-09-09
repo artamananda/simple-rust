@@ -23,6 +23,11 @@ impl CommentService {
         Ok(self.repository.list(&query).await?)
     }
 
+    /// Seluruh komentar tanpa paginasi (terlama lebih dulu).
+    pub async fn list_all(&self) -> ServiceResult<Vec<Comment>> {
+        Ok(self.repository.list_all().await?)
+    }
+
     pub async fn get(&self, id: Uuid) -> ServiceResult<Comment> {
         self.repository
             .find_by_id(id)

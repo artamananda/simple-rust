@@ -2,6 +2,8 @@
 
 use std::sync::Arc;
 
+use chrono::FixedOffset;
+
 use crate::application::{CommentService, SyncService};
 
 #[derive(Clone)]
@@ -10,6 +12,8 @@ pub struct AppState {
     /// `None` kalau SYNC_SOURCE_URL/SYNC_SECRET belum diisi — endpoint sync
     /// menjawab 503, bukan berjalan dengan kunci default.
     pub sync: Option<SyncEndpoint>,
+    /// Zona waktu untuk menafsirkan tanggal tanpa zona di endpoint `/exec`.
+    pub legacy_offset: FixedOffset,
 }
 
 /// Use case sync beserta kata kunci yang menjaganya.
@@ -20,7 +24,15 @@ pub struct SyncEndpoint {
 }
 
 impl AppState {
-    pub fn new(comments: Arc<CommentService>, sync: Option<SyncEndpoint>) -> Self {
-        Self { comments, sync }
+    pub fn new(
+        comments: Arc<CommentService>,
+        sync: Option<SyncEndpoint>,
+        legacy_offset: FixedOffset,
+    ) -> Self {
+        Self {
+            comments,
+            sync,
+            legacy_offset,
+        }
     }
 }

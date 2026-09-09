@@ -12,6 +12,7 @@ use tower_http::trace::TraceLayer;
 use crate::config::HttpConfig;
 use crate::presentation::error::ApiError;
 use crate::presentation::handlers::{comment, health};
+use crate::presentation::legacy;
 use crate::presentation::state::AppState;
 
 pub fn build_router(state: AppState, cfg: &HttpConfig) -> Router {
@@ -28,6 +29,9 @@ pub fn build_router(state: AppState, cfg: &HttpConfig) -> Router {
         );
 
     Router::new()
+        // Endpoint kompatibel Apps Script: satu URL untuk GET & POST, persis
+        // seperti `.../macros/s/XXX/exec`. Frontend lama cukup ganti URL-nya.
+        .route("/exec", get(legacy::list).post(legacy::create))
         .route("/healthz", get(health::health))
         .route("/version", get(health::version))
         .nest("/api", comments)

@@ -6,6 +6,7 @@
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
+use chrono::FixedOffset;
 use simple_rust::application::{CommentService, SyncService};
 use simple_rust::build_info;
 use simple_rust::config::Config;
@@ -60,7 +61,15 @@ async fn main() -> Result<()> {
         }
     };
 
-    let router = build_router(AppState::new(service, sync), &cfg.http);
+    let legacy_offset =
+        FixedOffset::east_opt(cfg.legacy_utc_offset_hours * 3600).with_context(|| {
+            format!(
+                "LEGACY_UTC_OFFSET_HOURS tidak valid: {}",
+                cfg.legacy_utc_offset_hours
+            )
+        })?;
+
+    let router = build_router(AppState::new(service, sync, legacy_offset), &cfg.http);
 
     let listener = TcpListener::bind(&cfg.http.addr)
         .await

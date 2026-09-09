@@ -61,6 +61,10 @@ pub struct ListCommentsQuery {
 pub trait CommentRepository: Send + Sync + 'static {
     async fn list(&self, query: &ListCommentsQuery) -> RepositoryResult<Page<Comment>>;
 
+    /// Seluruh komentar, terlama lebih dulu, tanpa paginasi. Dipakai endpoint
+    /// kompatibilitas Apps Script yang memang mengembalikan semuanya sekaligus.
+    async fn list_all(&self) -> RepositoryResult<Vec<Comment>>;
+
     async fn find_by_id(&self, id: Uuid) -> RepositoryResult<Option<Comment>>;
 
     async fn create(&self, input: &NewComment) -> RepositoryResult<Comment>;

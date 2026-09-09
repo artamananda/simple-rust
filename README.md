@@ -199,7 +199,46 @@ make run                    # migrasi jalan otomatis, server listen di :8080
 Perintah lain: `make test` (tanpa database), `make lint`, `make check`
 (format + lint + test sebelum commit).
 
+## Endpoint kompatibel Apps Script (`/exec`)
+
+Supaya frontend `our-wedding` **cukup mengganti URL-nya saja**, ada satu endpoint
+yang meniru perilaku Apps Script persis. Di `src/assets/data/data.js`:
+
+```js
+// sebelumnya
+api: "https://script.google.com/macros/s/AKfy.../exec",
+// sesudahnya — tidak ada perubahan kode lain
+api: "https://api-annisaarta.novelle.id/exec",
+```
+
+Empat hal yang ditiru, semuanya wajib karena sudah tertanam di kode frontend:
+
+| Perilaku                                            | Kenapa perlu                                                                                                       |
+| --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| GET membalas `{ status, message, comentar: [...] }` | `wishas.js` melakukan `const { comentar } = response`                                                              |
+| Semua baris dikirim sekaligus, tanpa paginasi       | frontend yang memotongnya jadi halaman berisi 10                                                                   |
+| Urutan **terlama lebih dulu**                       | frontend memanggil `comentar.reverse()`                                                                            |
+| POST menerima body `text/plain`                     | `mode: 'no-cors'` membuat browser menurunkan `Content-Type`, dan ekstraktor `Json` Axum akan menolaknya dengan 415 |
+
+Ditambah satu hal soal tanggal: frontend mengirim `"2026-09-09 23:42"` (waktu
+lokal, tanpa zona) lewat `getCurrentDateTime()`. Nilai itu ditafsirkan sebagai
+**WIB** (`LEGACY_UTC_OFFSET_HOURS`, default 7). Kalau dianggap UTC, komentar
+yang baru dikirim akan tampil sebagai "7 jam yang lalu".
+
+Balasannya pun sama: `date` diformat `2026-08-24T02:40:00.000Z` (ISO milidetik),
+dan POST menjawab `{"status":200,"message":"Data berhasil ditambahkan"}`.
+
+Kontraknya dikunci test di `tests/legacy_api.rs` supaya tidak rusak diam-diam.
+
+**Satu-satunya perbedaan yang tersisa:** `id` berupa UUID (`"7de5310e-…"`),
+bukan angka 6 digit seperti versi sheet. Aman, karena frontend tidak pernah
+membaca field itu — sudah diperiksa; ia hanya memakai `name`, `status`,
+`message`, `date`, dan `color`.
+
 ## Beda dengan versi Apps Script
+
+Bagian ini berlaku untuk API bersih di `/api/comments`. Kalau memakai `/exec`,
+tidak ada satu pun yang perlu disesuaikan.
 
 Yang perlu disesuaikan di frontend:
 
@@ -268,7 +307,7 @@ menyala. Server merespons SIGTERM dengan _graceful shutdown_, jadi
 Verifikasi setelah deploy:
 
 ```bash
-curl https://api.annisaarta.novelle.id/version
+curl https://api-annisaarta.novelle.id/version
 ```
 
 Ganti `server_name`, port (`127.0.0.1:8081`), dan nama host di

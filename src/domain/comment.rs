@@ -11,7 +11,10 @@ use super::error::DomainError;
 
 const MAX_NAME_LEN: usize = 100;
 const MAX_STATUS_LEN: usize = 32;
-const MAX_MESSAGE_LEN: usize = 1_000;
+// Dinaikkan dari 1.000: endpoint lama tidak punya batas, dan dengan
+// `mode: 'no-cors'` frontend tidak bisa membaca error — pesan yang ditolak
+// akan hilang diam-diam tanpa tamu menyadarinya.
+const MAX_MESSAGE_LEN: usize = 2_000;
 const MAX_COLOR_LEN: usize = 32;
 const DEFAULT_COLOR: &str = "#000000";
 

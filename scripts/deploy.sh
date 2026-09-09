@@ -18,7 +18,7 @@ cd "$ROOT_DIR"
 # Production hanya merilis versi yang sudah diuji & di-commit.
 VERSION="$(read_version)"
 
-echo "==> [1/6] Cek arsitektur & direktori di VPS..."
+echo "==> [1/5] Cek arsitektur & direktori di VPS..."
 # Dicek lebih dulu: binary dengan arsitektur salah baru ketahuan saat systemd
 # menjalankannya (status=203/EXEC), padahal service lama sudah terlanjur mati.
 REMOTE_ARCH="$(ssh -i "$SSH_KEY" -p "$VPS_PORT" "$VPS_USER@$VPS_HOST" "uname -m")"
@@ -39,28 +39,30 @@ echo "  -> $REMOTE_ARCH, cocok dengan build $DEPLOY_ARCH"
 ssh -i "$SSH_KEY" -p "$VPS_PORT" "$VPS_USER@$VPS_HOST" \
     "sudo mkdir -p $REMOTE_DIR && sudo chown -R $VPS_USER:$VPS_USER $REMOTE_DIR && sudo chmod 755 $REMOTE_DIR"
 
-echo "==> [2/6] Build binary release ($DEPLOY_ARCH)..."
+echo "==> [2/5] Build binary release ($DEPLOY_ARCH)..."
 build_binary "$TARGET" "$VERSION" "$APP_NAME"
 
-echo "==> [3/6] Copy .env production..."
-cp "$ROOT_DIR/keys/.env.production" .env
-
-echo "==> [4/6] Upload binary, .env, config, dan service ke VPS..."
+echo "==> [3/5] Upload binary, .env, config, dan service ke VPS..."
 # Binary dikirim ke nama sementara: file biner yang sedang berjalan tidak bisa
 # ditimpa langsung (Linux ETXTBSY / "Text file busy"). Tukar nama di VPS.
 scp -i "$SSH_KEY" -P "$VPS_PORT" \
     "$APP_NAME" \
     "$VPS_USER@$VPS_HOST:$REMOTE_DIR/$APP_NAME.new"
 scp -i "$SSH_KEY" -P "$VPS_PORT" \
-    .env \
     deploy/simple-rust-production.conf \
     deploy/simple-rust.service \
     "$VPS_USER@$VPS_HOST:$REMOTE_DIR/"
+# .env dikirim langsung dari keys/ dan diganti namanya di tujuan.
+# Sebelumnya file ini disalin dulu ke root repo lalu dihapus saat cleanup —
+# yang berarti setiap deploy ikut menghapus .env development milik kita.
+scp -i "$SSH_KEY" -P "$VPS_PORT" \
+    "$ROOT_DIR/keys/.env.production" \
+    "$VPS_USER@$VPS_HOST:$REMOTE_DIR/.env"
 
-echo "==> [5/6] Bersihkan artefak lokal..."
-rm -f "$APP_NAME" .env
+echo "==> [4/5] Bersihkan binary lokal..."
+rm -f "$APP_NAME"
 
-echo "==> [6/6] Pasang service & reload nginx di VPS..."
+echo "==> [5/5] Pasang service & reload nginx di VPS..."
 ssh -i "$SSH_KEY" -p "$VPS_PORT" "$VPS_USER@$VPS_HOST" bash <<EOSSH
 set -e
 cd $REMOTE_DIR
@@ -110,5 +112,5 @@ sudo systemctl status $APP_NAME.service --no-pager -l
 EOSSH
 
 echo ""
-echo "Backend deployed successfully (v$VERSION) -> https://api.annisaarta.novelle.id"
-echo "   Cek hasil deploy: curl https://api.annisaarta.novelle.id/version"
+echo "Backend deployed successfully (v$VERSION) -> https://api-annisaarta.novelle.id"
+echo "   Cek hasil deploy: curl https://api-annisaarta.novelle.id/version"

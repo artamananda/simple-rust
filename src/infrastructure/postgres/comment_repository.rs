@@ -76,6 +76,22 @@ impl CommentRepository for PgCommentRepository {
         Ok(Page::new(items, total, query.pagination))
     }
 
+    async fn list_all(&self) -> RepositoryResult<Vec<Comment>> {
+        // Urutan menaik meniru urutan baris di spreadsheet: frontend lama
+        // memanggil .reverse() untuk menampilkan yang terbaru lebih dulu.
+        let rows: Vec<CommentRow> = sqlx::query_as(&format!(
+            "SELECT {COLUMNS} FROM comments ORDER BY commented_at ASC, created_at ASC"
+        ))
+        .fetch_all(&self.pool)
+        .await
+        .map_err(backend)?;
+
+        Ok(rows
+            .into_iter()
+            .map(Comment::try_from)
+            .collect::<Result<Vec<_>, _>>()?)
+    }
+
     async fn find_by_id(&self, id: Uuid) -> RepositoryResult<Option<Comment>> {
         let row: Option<CommentRow> =
             sqlx::query_as(&format!("SELECT {COLUMNS} FROM comments WHERE id = $1"))
